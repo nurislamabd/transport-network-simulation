@@ -21,7 +21,6 @@ import javafx.util.Duration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,6 +45,7 @@ public class SimulationReplayApp extends Application {
     private ReplayData replayData;
     private Timeline timeline;
     private boolean sliderDragInProgress;
+    private double playheadHour = 0.0;
 
     @Override
     public void start(Stage stage) {
@@ -65,16 +65,49 @@ public class SimulationReplayApp extends Application {
         hourSlider.setMajorTickUnit(Math.max(1, replayData.maxHour / 10.0));
         hourSlider.setMinorTickCount(0);
         hourSlider.setSnapToTicks(false);
-        hourSlider.setPrefWidth(550);
+        hourSlider.setPrefWidth(420);
 
         speedSlider = new Slider(0.25, 5.0, 1.0);
-        speedSlider.setPrefWidth(220);
+        speedSlider.setPrefWidth(180);
 
         playPauseButton = new Button("Play");
         playPauseButton.setOnAction(e -> togglePlayback());
 
-        HBox controls = new HBox(12, playPauseButton, new Label("Timeline:"), hourSlider,
-                hourLabel, new Label("Playback speed:"), speedSlider, speedLabel);
+        Button resetButton = new Button("Reset");
+        resetButton.setOnAction(e -> {
+            timeline.stop();
+            playPauseButton.setText("Play");
+            playheadHour = 0.0;
+            hourSlider.setValue(0.0);
+            drawInterpolatedFrame(playheadHour);
+        });
+
+        Button previousButton = new Button("◀ Prev");
+        previousButton.setOnAction(e -> {
+            timeline.stop();
+            playPauseButton.setText("Play");
+            playheadHour = Math.max(0, Math.floor(playheadHour) - 1);
+            hourSlider.setValue(playheadHour);
+            drawInterpolatedFrame(playheadHour);
+        });
+
+        Button nextButton = new Button("Next ▶");
+        nextButton.setOnAction(e -> {
+            timeline.stop();
+            playPauseButton.setText("Play");
+            playheadHour = Math.min(replayData.maxHour, Math.ceil(playheadHour) + 1);
+            hourSlider.setValue(playheadHour);
+            drawInterpolatedFrame(playheadHour);
+        });
+
+        HBox controls = new HBox(10,
+                playPauseButton,
+                previousButton,
+                nextButton,
+                resetButton,
+                new Label("Timeline:"), hourSlider,
+                hourLabel,
+                new Label("Speed:"), speedSlider, speedLabel);
         controls.setAlignment(Pos.CENTER_LEFT);
         controls.setPadding(new Insets(10, 0, 0, 0));
 
@@ -88,9 +121,9 @@ public class SimulationReplayApp extends Application {
 
         setupTimeline();
         bindControls();
-        drawCurrentFrame(0);
+        drawInterpolatedFrame(0.0);
 
-        Scene scene = new Scene(root, 1180, 830);
+        Scene scene = new Scene(root, 1220, 840);
         stage.setTitle("Transport Simulation Replay Viewer");
         stage.setScene(scene);
         stage.show();
@@ -100,37 +133,34 @@ public class SimulationReplayApp extends Application {
         hourSlider.setOnMousePressed(e -> sliderDragInProgress = true);
         hourSlider.setOnMouseReleased(e -> {
             sliderDragInProgress = false;
-            int hour = (int) Math.round(hourSlider.getValue());
-            drawCurrentFrame(hour);
+            playheadHour = hourSlider.getValue();
+            drawInterpolatedFrame(playheadHour);
         });
 
         hourSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
             if (sliderDragInProgress) {
-                int hour = (int) Math.round(newVal.doubleValue());
-                drawCurrentFrame(hour);
+                playheadHour = newVal.doubleValue();
+                drawInterpolatedFrame(playheadHour);
             }
         });
 
         speedSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
             speedLabel.setText(String.format("Speed: %.2fx", newVal.doubleValue()));
-            if (timeline != null) {
-                timeline.setRate(newVal.doubleValue());
-            }
         });
     }
 
     private void setupTimeline() {
-        timeline = new Timeline(new KeyFrame(Duration.millis(300), event -> {
-            int nextHour = Math.min(replayData.maxHour, (int) Math.round(hourSlider.getValue()) + 1);
-            hourSlider.setValue(nextHour);
-            drawCurrentFrame(nextHour);
-            if (nextHour >= replayData.maxHour) {
+        timeline = new Timeline(new KeyFrame(Duration.millis(40), event -> {
+            double deltaHours = (speedSlider.getValue() * 0.06);
+            playheadHour = Math.min(replayData.maxHour, playheadHour + deltaHours);
+            hourSlider.setValue(playheadHour);
+            drawInterpolatedFrame(playheadHour);
+            if (playheadHour >= replayData.maxHour) {
                 timeline.stop();
                 playPauseButton.setText("Play");
             }
         }));
         timeline.setCycleCount(Animation.INDEFINITE);
-        timeline.setRate(speedSlider.getValue());
     }
 
     private void togglePlayback() {
@@ -140,25 +170,27 @@ public class SimulationReplayApp extends Application {
             return;
         }
 
-        if (hourSlider.getValue() >= replayData.maxHour) {
-            hourSlider.setValue(0);
-            drawCurrentFrame(0);
+        if (playheadHour >= replayData.maxHour) {
+            playheadHour = 0.0;
+            hourSlider.setValue(0.0);
+            drawInterpolatedFrame(0.0);
         }
 
         timeline.play();
         playPauseButton.setText("Pause");
     }
 
-    private void drawCurrentFrame(int hour) {
+    private void drawInterpolatedFrame(double hourPosition) {
         GraphicsContext gc = canvas.getGraphicsContext2D();
         gc.setFill(Color.rgb(20, 24, 35));
         gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
 
-        FrameState frame = replayData.frames.get(hour);
-        if (frame == null) {
-            hourLabel.setText("Hour: " + hour + " (no data)");
-            return;
-        }
+        int baseHour = (int) Math.floor(hourPosition);
+        int nextHour = Math.min(replayData.maxHour, baseHour + 1);
+        double t = hourPosition - baseHour;
+
+        FrameState baseFrame = replayData.frames.getOrDefault(baseHour, new FrameState());
+        FrameState nextFrame = replayData.frames.getOrDefault(nextHour, baseFrame);
 
         double w = canvas.getWidth();
         double h = canvas.getHeight();
@@ -171,39 +203,41 @@ public class SimulationReplayApp extends Application {
         gc.setLineWidth(2.0);
         gc.strokeRect(leftPad, topPad, mapW, mapH);
 
-        for (WarehouseState warehouse : frame.warehouses.values()) {
+        for (WarehouseState warehouse : baseFrame.warehouses.values()) {
             double x = leftPad + (warehouse.posX / replayData.mapX) * mapW;
             double y = topPad + (warehouse.posY / replayData.mapY) * mapH;
             gc.setFill(Color.web("#5ca9ff"));
             gc.fillOval(x - 8, y - 8, 16, 16);
             gc.setFill(Color.WHITE);
             gc.fillText("W" + warehouse.id, x + 10, y - 6);
-            gc.setFill(Color.LIGHTGRAY);
-            gc.fillText("Inv:" + warehouse.inventorySize, x + 10, y + 10);
         }
 
-        for (TruckState truck : frame.trucks.values()) {
-            double x = leftPad + (truck.posX / replayData.mapX) * mapW;
-            double y = topPad + (truck.posY / replayData.mapY) * mapH;
-            gc.setFill(statusColor(truck.status));
+        for (TruckState currentTruck : baseFrame.trucks.values()) {
+            TruckState nextTruck = nextFrame.trucks.getOrDefault(currentTruck.id, currentTruck);
+            double lerpX = currentTruck.posX + ((nextTruck.posX - currentTruck.posX) * t);
+            double lerpY = currentTruck.posY + ((nextTruck.posY - currentTruck.posY) * t);
+            double x = leftPad + (lerpX / replayData.mapX) * mapW;
+            double y = topPad + (lerpY / replayData.mapY) * mapH;
+
+            gc.setFill(statusColor(currentTruck.status));
             gc.fillRect(x - 6, y - 6, 12, 12);
             gc.setFill(Color.WHITE);
-            gc.fillText("T" + truck.id, x + 8, y - 8);
+            gc.fillText("T" + currentTruck.id, x + 8, y - 8);
         }
 
         int delivered = 0;
-        for (ShipmentState shipment : frame.shipments.values()) {
+        for (ShipmentState shipment : baseFrame.shipments.values()) {
             if ("Delivered".equalsIgnoreCase(shipment.status)) {
                 delivered++;
             }
         }
 
         gc.setFill(Color.WHITE);
-        gc.fillText("Warehouses: " + frame.warehouses.size(), 20, 20);
-        gc.fillText("Trucks: " + frame.trucks.size(), 160, 20);
-        gc.fillText("Shipments delivered: " + delivered + "/" + frame.shipments.size(), 260, 20);
+        gc.fillText("Warehouses: " + baseFrame.warehouses.size(), 20, 20);
+        gc.fillText("Trucks: " + baseFrame.trucks.size(), 160, 20);
+        gc.fillText("Shipments delivered: " + delivered + "/" + baseFrame.shipments.size(), 260, 20);
 
-        hourLabel.setText("Hour: " + hour);
+        hourLabel.setText(String.format("Hour: %.2f / %d", hourPosition, replayData.maxHour));
     }
 
     private Color statusColor(String status) {
@@ -277,7 +311,7 @@ public class SimulationReplayApp extends Application {
             }
 
             return new ReplayData(frames, maxHour, maxX, maxY,
-                    "Loaded replay files successfully. Use play or drag the timeline slider.");
+                    "Loaded replay files successfully. Use buttons and sliders to navigate the replay.");
         } catch (IOException ex) {
             return ReplayData.empty("Could not load CSV files. Run simulation first to generate logs.");
         }
