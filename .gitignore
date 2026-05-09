@@ -1,6 +1,11 @@
 # Java
 *.class
 
+# Logs/data
+*.csv
+*.txt
+logs/
+
 # Build folders
 bin/
 out/
@@ -12,14 +17,3 @@ target/
 # BlueJ
 *.ctxt
 package.bluej
-
-# Logs
-logs/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-*.csv
-*.txt
-logs/
