@@ -130,6 +130,7 @@ classDiagram
 ```
 
 > If your Git host does not render Mermaid blocks, copy this diagram into mermaid.live or a Markdown preview that supports Mermaid.
+The simulation follows an event-driven hourly update loop with centralized control in the Simulation engine.
 
 ## Project Structure
 
