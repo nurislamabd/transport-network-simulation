@@ -20,6 +20,117 @@ Core execution flow:
 3. Run hourly cycles until all trucks are finished.
 4. Persist object state snapshots to CSV logs.
 
+## UML Diagram (Your Transport Simulation)
+
+```mermaid
+classDiagram
+    class Main {
+      +randomConfiguration(File)
+      +configure(File, int, int, int, int, int)
+      +main(String[])
+    }
+
+    class Simulation {
+      +lastTruckDelivered : boolean
+      +warehouses : int
+      +shipments : int
+      +trucks : int
+      +simulate()
+      -nextCycle()
+      -initialize(File)
+      +getTruckBuffer() BufferedWriter
+      +getWarehouseBuffer() BufferedWriter
+      +getShipmentBuffer() BufferedWriter
+    }
+
+    class Map {
+      -currHour : int
+      -mapX : double
+      -mapY : double
+      +Map(double,double)
+      +getCurrHour() int
+      +getMapX() double
+      +getMapY() double
+      +clockIncrement()
+      +reset()
+    }
+
+    class Schedule {
+      <<interface>>
+      +action()
+      +logStatus()
+    }
+
+    class Warehouse {
+      -id : int
+      -posX : double
+      -posY : double
+      -loadingDocks : int
+      -inventory : MyArrayList~Shipment~
+      -trucks : MyQueue~Truck~
+      +action()
+      +logStatus()
+      +addToInventory(Shipment)
+      +removeFromInventory(Shipment) boolean
+      +addTruckToQueue(Truck)
+    }
+
+    class Truck {
+      -id : int
+      -posX : double
+      -posY : double
+      -loadSize : int
+      -speed : double
+      -status : String
+      -manifest : MyArrayList~Shipment~
+      -load : ArrayBasedStack~Shipment~
+      +action()
+      +logStatus()
+      +pickup()
+      +unload() Shipment
+      +addManifest(Shipment) boolean
+      +finished() boolean
+    }
+
+    class Shipment {
+      -id : int
+      -source : Warehouse
+      -destination : Warehouse
+      -size : int
+      -location : Warehouse
+      +logStatus()
+      +delivered() boolean
+      +size() int
+      +getSource() Warehouse
+      +getDestination() Warehouse
+    }
+
+    class MyArrayList~T~
+    class MyQueue~T~
+    class ArrayBasedStack~T~
+
+    Main --> Simulation : creates/runs
+    Simulation --> Map : initializes/resets
+    Simulation o-- Warehouse : manages
+    Simulation o-- Truck : manages
+    Simulation o-- Shipment : manages
+
+    Warehouse ..|> Schedule
+    Truck ..|> Schedule
+
+    Warehouse --> MyQueue~Truck~ : queue
+    Warehouse --> MyArrayList~Shipment~ : inventory
+    Truck --> MyArrayList~Shipment~ : manifest
+    Truck --> ArrayBasedStack~Shipment~ : current load
+
+    Shipment --> Warehouse : source
+    Shipment --> Warehouse : destination
+    Shipment --> Warehouse : current location
+    Truck --> Warehouse : current destination
+```
+
+> If your Git host does not render Mermaid blocks, copy this diagram into mermaid.live or a Markdown preview that supports Mermaid.
+
 ## Project Structure
 
 ```text
