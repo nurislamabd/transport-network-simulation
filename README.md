@@ -107,6 +107,14 @@ or notebooks for analysis/visualization.
 
 - IDs for trucks, warehouses, and shipments are generated incrementally per run.
 - Warehouse inventory is kept sorted by shipment ID for lookup/removal efficiency.
+
+## Future Improvements
+
+- Real-time visualization
+- Web dashboard
+- Route optimization
+- REST API integration
+- Interactive map
 - Truck manifests are prioritized and updated after each pickup/unload event.
 - The map clock and IDs are reset after simulation completes.
 
