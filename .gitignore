@@ -1,0 +1,25 @@
+# Java
+*.class
+
+# Build folders
+bin/
+out/
+target/
+
+# VS Code
+.vscode/
+
+# BlueJ
+*.ctxt
+package.bluej
+
+# Logs
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+*.csv
+*.txt
+logs/
