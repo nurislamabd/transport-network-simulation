@@ -130,7 +130,15 @@ classDiagram
 ```
 
 > If your Git host does not render Mermaid blocks, copy this diagram into mermaid.live or a Markdown preview that supports Mermaid.
-The simulation follows an event-driven hourly update loop with centralized control in the Simulation engine.
+
+
+## JavaFX Application Preview
+
+> Add a screenshot of the JavaFX UI here once available.
+
+<img width="1181" height="810" alt="image" src="https://github.com/user-attachments/assets/f860786b-76e2-4c6f-a0d6-e12f18d3fa1b" />
+
+If the image file does not exist yet, create `docs/images/` and replace the placeholder path with the actual screenshot file name.
 
 ## Project Structure
 
@@ -221,14 +229,6 @@ or notebooks for analysis/visualization.
 - Warehouse inventory is kept sorted by shipment ID for lookup/removal efficiency.
 - Truck manifests are prioritized and updated after each pickup/unload event.
 - The map clock and IDs are reset after simulation completes.
-
-## Future Improvements
-
-- Real-time visualization
-- Web dashboard
-- Route optimization
-- REST API integration
-- Interactive map
 
 ## License
 
