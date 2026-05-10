@@ -134,11 +134,9 @@ classDiagram
 
 ## JavaFX Application Preview
 
-> Add a screenshot of the JavaFX UI here once available.
+> Screenshot of the JavaFX Visualization app.
 
 <img width="1181" height="810" alt="image" src="https://github.com/user-attachments/assets/f860786b-76e2-4c6f-a0d6-e12f18d3fa1b" />
-
-If the image file does not exist yet, create `docs/images/` and replace the placeholder path with the actual screenshot file name.
 
 ## Project Structure
 
@@ -160,6 +158,8 @@ src/main/java/
     ArrayBasedStack.java
     BasicQueue.java
     BasicStack.java
+  visualization/      # JavaFX visualization program
+    SimulationReplayApp.java
 
 src/test/java/test/   # JUnit tests
 ```
@@ -197,6 +197,17 @@ The program is interactive and lets you:
 1. Exit,
 2. Run with random default configuration,
 3. Run with user-provided map size and object counts.
+
+
+### JavaFX Visualization
+
+After generating simulation logs with the backend app, run the JavaFX UI:
+
+```bash
+mvn clean compile javafx:run
+```
+
+> Important: Run the backend simulation first so the visualization has data to read from generated CSV files.
 
 ## Configuration Generation
 
