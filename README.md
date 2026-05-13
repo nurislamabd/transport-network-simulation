@@ -136,7 +136,7 @@ classDiagram
 
 > Screenshot of the JavaFX Visualization app.
 
-<img width="1181" height="810" alt="image" src="https://github.com/user-attachments/assets/f860786b-76e2-4c6f-a0d6-e12f18d3fa1b" />
+<img width="1241" height="879" alt="image" src="https://github.com/user-attachments/assets/9cd78638-5bf2-4b55-acd2-06143b92d682" />
 
 ## Project Structure
 
