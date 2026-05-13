@@ -201,13 +201,31 @@ The program is interactive and lets you:
 
 ### JavaFX Visualization
 
-After generating simulation logs with the backend app, run the JavaFX UI:
+Run the JavaFX UI:
 
 ```bash
 mvn clean compile javafx:run
 ```
 
-> Important: Run the backend simulation first so the visualization has data to read from generated CSV files.
+The JavaFX app can now execute the backend simulation directly:
+
+- **Run backend (random)**: generates a random config and runs the simulation.
+- **Run backend (configured)**: uses the UI input values for map/object counts and runs the simulation.
+
+Default configured values shown in the UI are:
+
+- mapX = `500`
+- mapY = `500`
+- warehouses = `20`
+- shipments = `100`
+- trucks = `20`
+
+Configured mode uses the same backend validation constraints:
+
+- map x/y: **1–1000**
+- trucks: **1–5000**
+- warehouses: **2–5000**
+- shipments: **1–10000**
 
 ## Configuration Generation
 
