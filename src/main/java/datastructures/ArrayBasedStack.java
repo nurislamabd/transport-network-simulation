@@ -17,9 +17,9 @@ public class ArrayBasedStack<E> implements BasicStack<E>
     /**
      * Constructs an empty stack.
      */
+    @SuppressWarnings("unchecked")
     public ArrayBasedStack()
     {
-        // Unchecked warning is unavoidable
         data = (E[]) new Object[DEFAULT_SIZE];
     }
     

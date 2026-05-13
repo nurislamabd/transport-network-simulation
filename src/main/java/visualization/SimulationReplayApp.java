@@ -1,5 +1,18 @@
 package visualization;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -23,17 +36,6 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 import simulation.Main;
 import simulation.Simulation;
-
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * JavaFX application that can run the backend simulation and replay the generated CSV logs.
@@ -342,7 +344,7 @@ public class SimulationReplayApp extends Application {
         gc.setLineWidth(2.0);
         gc.strokeRect(leftPad, topPad, mapW, mapH);
 
-        for (WarehouseState warehouse : baseFrame.warehouses.values()) {
+        for (WarehouseState warehouse : baseFrame.warehouses) {
             double x = leftPad + (warehouse.posX / replayData.mapX) * mapW;
             double y = topPad + (warehouse.posY / replayData.mapY) * mapH;
             gc.setFill(Color.web("#5ca9ff"));
@@ -351,8 +353,11 @@ public class SimulationReplayApp extends Application {
             gc.fillText("W" + warehouse.id, x + 10, y - 6);
         }
 
-        for (TruckState currentTruck : baseFrame.trucks.values()) {
-            TruckState nextTruck = nextFrame.trucks.getOrDefault(currentTruck.id, currentTruck);
+        for (TruckState currentTruck : baseFrame.trucks) {
+            TruckState nextTruck = nextFrame.getTruck(currentTruck.id());
+            if (nextTruck == null) {
+                nextTruck = currentTruck;
+            }
             double lerpX = currentTruck.posX + ((nextTruck.posX - currentTruck.posX) * t);
             double lerpY = currentTruck.posY + ((nextTruck.posY - currentTruck.posY) * t);
             double x = leftPad + (lerpX / replayData.mapX) * mapW;
@@ -365,7 +370,7 @@ public class SimulationReplayApp extends Application {
         }
 
         int delivered = 0;
-        for (ShipmentState shipment : baseFrame.shipments.values()) {
+        for (ShipmentState shipment : baseFrame.shipments) {
             if ("Delivered".equalsIgnoreCase(shipment.status)) {
                 delivered++;
             }
@@ -390,54 +395,55 @@ public class SimulationReplayApp extends Application {
 
     private ReplayData loadReplayData() {
         try {
-            List<String> truckLines = Files.readAllLines(TRUCKS_FILE);
-            List<String> warehouseLines = Files.readAllLines(WAREHOUSES_FILE);
-            List<String> shipmentLines = Files.readAllLines(SHIPMENTS_FILE);
-
             Map<Integer, FrameState> frames = new HashMap<>();
             Set<Integer> allHours = new HashSet<>();
-            double maxX = 1.0;
-            double maxY = 1.0;
+            double[] maxXY = {1.0, 1.0};
 
-            for (int i = 1; i < warehouseLines.size(); i++) {
-                String[] cols = warehouseLines.get(i).split(",", -1);
-                int hour = parseInt(cols, 0);
-                int id = parseInt(cols, 1);
-                double posX = parseDouble(cols, 2);
-                double posY = parseDouble(cols, 3);
-                int invSize = parseInt(cols, 7);
-                maxX = Math.max(maxX, posX);
-                maxY = Math.max(maxY, posY);
+            try (Stream<String> lines = Files.lines(WAREHOUSES_FILE)) {
+                lines.skip(1).forEach(line -> {
+                    String[] cols = line.split(",", -1);
+                    int hour = parseInt(cols, 0);
+                    int id = parseInt(cols, 1);
+                    double posX = parseDouble(cols, 2);
+                    double posY = parseDouble(cols, 3);
+                    int invSize = parseInt(cols, 7);
+                    maxXY[0] = Math.max(maxXY[0], posX);
+                    maxXY[1] = Math.max(maxXY[1], posY);
 
-                FrameState frame = frames.computeIfAbsent(hour, k -> new FrameState());
-                frame.warehouses.put(id, new WarehouseState(id, posX, posY, invSize));
-                allHours.add(hour);
+                    FrameState frame = frames.computeIfAbsent(hour, k -> new FrameState());
+                    frame.warehouses.add(new WarehouseState(id, posX, posY, invSize));
+                    allHours.add(hour);
+                });
             }
 
-            for (int i = 1; i < truckLines.size(); i++) {
-                String[] cols = truckLines.get(i).split(",", -1);
-                int hour = parseInt(cols, 0);
-                int id = parseInt(cols, 1);
-                double posX = parseDouble(cols, 2);
-                double posY = parseDouble(cols, 3);
-                String status = cols.length > 6 ? cols[6] : "";
-                maxX = Math.max(maxX, posX);
-                maxY = Math.max(maxY, posY);
+            try (Stream<String> lines = Files.lines(TRUCKS_FILE)) {
+                lines.skip(1).forEach(line -> {
+                    String[] cols = line.split(",", -1);
+                    int hour = parseInt(cols, 0);
+                    int id = parseInt(cols, 1);
+                    double posX = parseDouble(cols, 2);
+                    double posY = parseDouble(cols, 3);
+                    String status = cols.length > 6 ? cols[6] : "";
+                    maxXY[0] = Math.max(maxXY[0], posX);
+                    maxXY[1] = Math.max(maxXY[1], posY);
 
-                FrameState frame = frames.computeIfAbsent(hour, k -> new FrameState());
-                frame.trucks.put(id, new TruckState(id, posX, posY, status));
-                allHours.add(hour);
+                    FrameState frame = frames.computeIfAbsent(hour, k -> new FrameState());
+                    frame.trucks.add(new TruckState(id, posX, posY, status));
+                    allHours.add(hour);
+                });
             }
 
-            for (int i = 1; i < shipmentLines.size(); i++) {
-                String[] cols = shipmentLines.get(i).split(",", -1);
-                int hour = parseInt(cols, 0);
-                int id = parseInt(cols, 1);
-                String status = cols.length > 6 ? cols[6] : "";
+            try (Stream<String> lines = Files.lines(SHIPMENTS_FILE)) {
+                lines.skip(1).forEach(line -> {
+                    String[] cols = line.split(",", -1);
+                    int hour = parseInt(cols, 0);
+                    int id = parseInt(cols, 1);
+                    String status = cols.length > 6 ? cols[6] : "";
 
-                FrameState frame = frames.computeIfAbsent(hour, k -> new FrameState());
-                frame.shipments.put(id, new ShipmentState(id, status));
-                allHours.add(hour);
+                    FrameState frame = frames.computeIfAbsent(hour, k -> new FrameState());
+                    frame.shipments.add(new ShipmentState(id, status));
+                    allHours.add(hour);
+                });
             }
 
             if (allHours.isEmpty()) {
@@ -449,7 +455,7 @@ public class SimulationReplayApp extends Application {
                 frames.computeIfAbsent(hour, k -> new FrameState());
             }
 
-            return new ReplayData(frames, maxHour, maxX, maxY,
+            return new ReplayData(frames, maxHour, maxXY[0], maxXY[1],
                     "Loaded replay files successfully. Use buttons and sliders to navigate the replay.");
         } catch (IOException ex) {
             return ReplayData.empty("Could not load CSV files. Run simulation first to generate logs.");
@@ -493,9 +499,18 @@ public class SimulationReplayApp extends Application {
     }
 
     private static class FrameState {
-        final Map<Integer, WarehouseState> warehouses = new HashMap<>();
-        final Map<Integer, TruckState> trucks = new HashMap<>();
-        final Map<Integer, ShipmentState> shipments = new HashMap<>();
+        final List<WarehouseState> warehouses = new ArrayList<>();
+        final List<TruckState> trucks = new ArrayList<>();
+        final List<ShipmentState> shipments = new ArrayList<>();
+
+        TruckState getTruck(int id) {
+            for (TruckState truck : trucks) {
+                if (truck.id() == id) {
+                    return truck;
+                }
+            }
+            return null;
+        }
     }
 
     private record WarehouseState(int id, double posX, double posY, int inventorySize) {}

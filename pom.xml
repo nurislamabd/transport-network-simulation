@@ -10,8 +10,7 @@
   <name>transport-simulation</name>
 
   <properties>
-    <maven.compiler.source>17</maven.compiler.source>
-    <maven.compiler.target>17</maven.compiler.target>
+    <maven.compiler.release>17</maven.compiler.release>
     <junit.jupiter.version>5.10.0</junit.jupiter.version>
     <javafx.version>21.0.2</javafx.version>
     <javafx.platform>win</javafx.platform>
@@ -25,6 +24,12 @@
       <scope>test</scope>
     </dependency>
 
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-base</artifactId>
+      <version>${javafx.version}</version>
+      <classifier>${javafx.platform}</classifier>
+    </dependency>
     <dependency>
       <groupId>org.openjfx</groupId>
       <artifactId>javafx-controls</artifactId>
@@ -43,6 +48,15 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.1.2</version>
       </plugin>
@@ -53,6 +67,10 @@
         <version>0.0.8</version>
         <configuration>
           <mainClass>visualization.SimulationReplayApp</mainClass>
+          <jvmArgs>
+            <jvmArg>--enable-native-access=javafx.graphics</jvmArg>
+            <jvmArg>-Xmx1G</jvmArg>
+          </jvmArgs>
         </configuration>
       </plugin>
     </plugins>
