@@ -4,6 +4,8 @@ import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -12,12 +14,17 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import simulation.Main;
+import simulation.Simulation;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,11 +35,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * JavaFX application that can run the backend simulation and replay the generated CSV logs.
+ * Users can launch a random scenario or provide explicit map/object counts directly from the UI.
+ */
 public class SimulationReplayApp extends Application {
 
     private static final Path TRUCKS_FILE = Path.of("TrucksCSV.txt");
     private static final Path WAREHOUSES_FILE = Path.of("WarehousesCSV.txt");
     private static final Path SHIPMENTS_FILE = Path.of("ShipmentsCSV.txt");
+    private static final File JAVAFX_CONFIG_FILE = new File("javafx-config.txt");
 
     private Canvas canvas;
     private Label hourLabel;
@@ -41,6 +53,14 @@ public class SimulationReplayApp extends Application {
     private Slider hourSlider;
     private Slider speedSlider;
     private Button playPauseButton;
+    private Button runRandomButton;
+    private Button runConfiguredButton;
+
+    private TextField mapXField;
+    private TextField mapYField;
+    private TextField warehousesField;
+    private TextField shipmentsField;
+    private TextField trucksField;
 
     private ReplayData replayData;
     private Timeline timeline;
@@ -73,6 +93,12 @@ public class SimulationReplayApp extends Application {
         playPauseButton = new Button("Play");
         playPauseButton.setOnAction(e -> togglePlayback());
 
+        runRandomButton = new Button("Run backend (random)");
+        runRandomButton.setOnAction(e -> runBackendWithRandomConfig());
+
+        runConfiguredButton = new Button("Run backend (configured)");
+        runConfiguredButton.setOnAction(e -> runBackendWithUserConfig());
+
         Button resetButton = new Button("Reset");
         resetButton.setOnAction(e -> {
             timeline.stop();
@@ -100,6 +126,9 @@ public class SimulationReplayApp extends Application {
             drawInterpolatedFrame(playheadHour);
         });
 
+        initializeConfigFields();
+        HBox backendControls = createBackendControlBar();
+
         HBox controls = new HBox(10,
                 playPauseButton,
                 previousButton,
@@ -109,13 +138,15 @@ public class SimulationReplayApp extends Application {
                 hourLabel,
                 new Label("Speed:"), speedSlider, speedLabel);
         controls.setAlignment(Pos.CENTER_LEFT);
-        controls.setPadding(new Insets(10, 0, 0, 0));
+
+        VBox controlArea = new VBox(10, backendControls, controls);
+        controlArea.setPadding(new Insets(10, 0, 0, 0));
 
         HBox footer = new HBox(statusLabel);
         footer.setPadding(new Insets(8, 0, 0, 0));
 
         BorderPane bottom = new BorderPane();
-        bottom.setTop(controls);
+        bottom.setTop(controlArea);
         bottom.setBottom(footer);
         root.setBottom(bottom);
 
@@ -123,10 +154,39 @@ public class SimulationReplayApp extends Application {
         bindControls();
         drawInterpolatedFrame(0.0);
 
-        Scene scene = new Scene(root, 1220, 840);
+        Scene scene = new Scene(root, 1420, 900);
         stage.setTitle("Transport Simulation Replay Viewer");
         stage.setScene(scene);
         stage.show();
+    }
+
+    /** Initializes text fields with valid defaults and sample values. */
+    private void initializeConfigFields() {
+        mapXField = new TextField("500");
+        mapYField = new TextField("500");
+        warehousesField = new TextField("20");
+        shipmentsField = new TextField("100");
+        trucksField = new TextField("20");
+
+        mapXField.setPrefWidth(70);
+        mapYField.setPrefWidth(70);
+        warehousesField.setPrefWidth(70);
+        shipmentsField.setPrefWidth(70);
+        trucksField.setPrefWidth(70);
+    }
+
+    /** Creates the UI controls for running backend simulation from JavaFX. */
+    private HBox createBackendControlBar() {
+        HBox backendControls = new HBox(8,
+                runRandomButton,
+                new Label("Map X:"), mapXField,
+                new Label("Map Y:"), mapYField,
+                new Label("Warehouses:"), warehousesField,
+                new Label("Shipments:"), shipmentsField,
+                new Label("Trucks:"), trucksField,
+                runConfiguredButton);
+        backendControls.setAlignment(Pos.CENTER_LEFT);
+        return backendControls;
     }
 
     private void bindControls() {
@@ -161,6 +221,85 @@ public class SimulationReplayApp extends Application {
             }
         }));
         timeline.setCycleCount(Animation.INDEFINITE);
+    }
+
+    /** Runs backend simulation with random configuration values. */
+    private void runBackendWithRandomConfig() {
+        runBackendTask(() -> Main.randomConfiguration(JAVAFX_CONFIG_FILE), "Running backend with random configuration...");
+    }
+
+    /**
+     * Runs backend simulation with user-specified values entered in the JavaFX inputs.
+     * Input constraints are validated by {@link Main#configure(File, int, int, int, int, int)}.
+     */
+    private void runBackendWithUserConfig() {
+        try {
+            int mapX = Integer.parseInt(mapXField.getText().trim());
+            int mapY = Integer.parseInt(mapYField.getText().trim());
+            int warehouses = Integer.parseInt(warehousesField.getText().trim());
+            int shipments = Integer.parseInt(shipmentsField.getText().trim());
+            int trucks = Integer.parseInt(trucksField.getText().trim());
+
+            runBackendTask(() -> Main.configure(JAVAFX_CONFIG_FILE, mapX, mapY, trucks, warehouses, shipments),
+                    "Running backend with configured values...");
+        } catch (NumberFormatException ex) {
+            statusLabel.setText("Invalid input: all configured values must be whole numbers.");
+        } catch (IllegalArgumentException ex) {
+            statusLabel.setText("Invalid configured values: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Executes backend generation + simulation in a background task and refreshes replay once complete.
+     */
+    private void runBackendTask(Runnable configurationWriter, String runningMessage) {
+        timeline.stop();
+        playPauseButton.setText("Play");
+        setBackendButtonsDisabled(true);
+        statusLabel.setText(runningMessage);
+
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() {
+                configurationWriter.run();
+                Simulation simulation = new Simulation(JAVAFX_CONFIG_FILE);
+                simulation.simulate();
+                return null;
+            }
+        };
+
+        task.setOnSucceeded(event -> {
+            reloadReplayData();
+            statusLabel.setText("Backend run completed. Replay refreshed from newly generated CSV logs.");
+            setBackendButtonsDisabled(false);
+        });
+
+        task.setOnFailed(event -> {
+            Throwable ex = task.getException();
+            statusLabel.setText("Backend run failed: " + (ex == null ? "unknown error" : ex.getMessage()));
+            setBackendButtonsDisabled(false);
+        });
+
+        Thread worker = new Thread(task, "simulation-backend-runner");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** Enables/disables backend run controls during long-running simulation execution. */
+    private void setBackendButtonsDisabled(boolean disabled) {
+        runRandomButton.setDisable(disabled);
+        runConfiguredButton.setDisable(disabled);
+    }
+
+    /** Reloads CSV data generated by backend and resets replay controls to start. */
+    private void reloadReplayData() {
+        replayData = loadReplayData();
+        playheadHour = 0.0;
+        hourSlider.setMin(0.0);
+        hourSlider.setMax(Math.max(0, replayData.maxHour));
+        hourSlider.setValue(0.0);
+        hourSlider.setMajorTickUnit(Math.max(1, replayData.maxHour / 10.0));
+        Platform.runLater(() -> drawInterpolatedFrame(0.0));
     }
 
     private void togglePlayback() {
