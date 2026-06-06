@@ -262,3 +262,38 @@ or notebooks for analysis/visualization.
 ## License
 
 This project is licensed under the terms in [LICENSE](LICENSE).
+
+## Web Simulation Website
+
+The project now includes a lightweight browser UI backed by the existing Java simulation engine.
+The website lets you:
+
+- run a backend simulation from the browser,
+- choose random or configured map/truck/warehouse/shipment settings,
+- play and pause a replay of the generated truck positions,
+- reset or scrub the replay hour-by-hour,
+- adjust playback speed, and
+- download the generated truck, warehouse, and shipment CSV files.
+
+Start the web server after compiling the project:
+
+```bash
+mvn -q -DskipTests compile
+java -cp target/classes web.SimulationWebServer
+```
+
+Then open:
+
+```text
+http://localhost:8080/
+```
+
+You can also choose a custom port:
+
+```bash
+java -cp target/classes web.SimulationWebServer 9090
+```
+
+The website calls the Java backend at `POST /api/simulations`. Each run creates a directory under
+`web-simulation-runs/` containing `config.txt`, `TrucksCSV.txt`, `WarehousesCSV.txt`, and
+`ShipmentsCSV.txt` for replay and download.

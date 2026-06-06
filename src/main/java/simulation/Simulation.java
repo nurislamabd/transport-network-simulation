@@ -11,6 +11,7 @@ import java.io.FileNotFoundException;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 
 /**
  * Simulation class is used to initialize and run the simulation. Contains variables
@@ -48,6 +49,8 @@ public class Simulation
     private double trucksMs;
     private double warehousesMs;
     private double shipmentsMs;
+    private int completedHours;
+    private File outputDirectory;
     
     /**
      * Constructor for objects of class Simulation.
@@ -56,20 +59,34 @@ public class Simulation
      */
     public Simulation(File file)
     {
+        this(file, new File("."));
+    }
+
+    /**
+     * Constructor for objects of class Simulation that writes CSV logs to a supplied output directory.
+     *
+     * @param  file             config file which contains the full configuration for the simulation
+     * @param  outputDirectory  directory where CSV log files are written
+     */
+    public Simulation(File file, File outputDirectory)
+    {
+        this.outputDirectory = outputDirectory;
         // clear and intitialize files
         try {
+            Files.createDirectories(outputDirectory.toPath());
+
             // Truck file
-            truckBuffer = new BufferedWriter(new FileWriter("TrucksCSV.txt", false));
+            truckBuffer = new BufferedWriter(new FileWriter(new File(outputDirectory, "TrucksCSV.txt"), false));
             truckBuffer.write("Hour,TruckID,PosX,PosY,LoadSize,Speed,Status,CurrLoad,SpaceInLoad,DestinationWarehouseID,PriorityManifestID,Manifest");
             truckBuffer.newLine();
             
             // Warehouse file
-            warehouseBuffer = new BufferedWriter(new FileWriter("WarehousesCSV.txt", false));
+            warehouseBuffer = new BufferedWriter(new FileWriter(new File(outputDirectory, "WarehousesCSV.txt"), false));
             warehouseBuffer.write("Hour,WarehouseID,PosX,PosY,LoadingDocks,TrucksQueueSize,TrucksInQueue,InventorySize,ShipmentsInInventory");
             warehouseBuffer.newLine();
             
             // Shipment file
-            shipmentBuffer = new BufferedWriter(new FileWriter("ShipmentsCSV.txt", false));
+            shipmentBuffer = new BufferedWriter(new FileWriter(new File(outputDirectory, "ShipmentsCSV.txt"), false));
             shipmentBuffer.write("Hour,ShipmentID,Size,SourceID,DestinationID,CurrentWarehouse,Status");
             shipmentBuffer.newLine();
         } catch (IOException e) {
@@ -96,7 +113,8 @@ public class Simulation
         System.out.println("Simulation is done!");
         System.out.println("");
         System.out.println("Trucks = " + trucks + "  |  Warehouses = " + warehouses + "  |  Shipments = " + shipments);
-        System.out.println("Hours passed in the simulation: " + Map.getCurrHour());
+        completedHours = Map.getCurrHour();
+        System.out.println("Hours passed in the simulation: " + completedHours);
         System.out.println("Truck Runtime: " + trucksMs + "ms" + "  |  Warehouse Runtime: " + warehousesMs + "ms" + "  |  Shipment Runtime: " + shipmentsMs + "ms");
         
         try
@@ -110,6 +128,56 @@ public class Simulation
             System.err.println("Failed to close the file");
         }
         Map.reset();
+    }
+
+    /**
+     * Returns how many simulation hours elapsed during the most recent run.
+     *
+     * @return completed simulation hours
+     */
+    public int getCompletedHours()
+    {
+        return completedHours;
+    }
+
+    /**
+     * Returns the total runtime spent processing truck actions and logging.
+     *
+     * @return truck processing runtime in milliseconds
+     */
+    public double getTrucksMs()
+    {
+        return trucksMs;
+    }
+
+    /**
+     * Returns the total runtime spent processing warehouse actions and logging.
+     *
+     * @return warehouse processing runtime in milliseconds
+     */
+    public double getWarehousesMs()
+    {
+        return warehousesMs;
+    }
+
+    /**
+     * Returns the total runtime spent logging shipment status.
+     *
+     * @return shipment logging runtime in milliseconds
+     */
+    public double getShipmentsMs()
+    {
+        return shipmentsMs;
+    }
+
+    /**
+     * Returns the directory where CSV logs are written.
+     *
+     * @return output directory
+     */
+    public File getOutputDirectory()
+    {
+        return outputDirectory;
     }
 
     /**
