@@ -262,3 +262,67 @@ or notebooks for analysis/visualization.
 ## License
 
 This project is licensed under the terms in [LICENSE](LICENSE).
+
+## Web Simulation Website
+
+The project now includes a lightweight browser UI backed by the existing Java simulation engine.
+The website lets you:
+
+- run a backend simulation from the browser,
+- choose random or configured map/truck/warehouse/shipment settings,
+- play and pause a replay of the generated truck positions,
+- reset or scrub the replay hour-by-hour,
+- adjust playback speed, and
+- download the generated truck, warehouse, and shipment CSV files.
+
+Start the web server after compiling the project:
+
+```bash
+mvn -q -DskipTests compile
+java -cp target/classes web.SimulationWebServer
+```
+
+Then open:
+
+```text
+http://localhost:8080/
+```
+
+You can also choose a custom port:
+
+```bash
+java -cp target/classes web.SimulationWebServer 9090
+```
+
+The website calls the Java backend at `POST /api/simulations`. Each run creates a directory under
+`web-simulation-runs/` containing `config.txt`, `TrucksCSV.txt`, `WarehousesCSV.txt`, and
+`ShipmentsCSV.txt` for replay and download.
+
+### Free GitHub-connected deployment
+
+GitHub Pages alone cannot host this application because the simulation needs a running Java backend.
+Pages can publish static HTML/CSS/JavaScript, but it cannot keep `web.SimulationWebServer` running.
+
+For a free public deployment with GitHub as the source of truth, use the included Docker/Render setup:
+
+1. Push this repository to GitHub.
+2. Create a free Render account and choose **New +** → **Blueprint**.
+3. Connect your GitHub repository.
+4. Render will read `render.yaml`, build the included `Dockerfile`, and start the Java web server.
+5. Open the public `https://...onrender.com/` URL that Render creates.
+
+The server reads the host platform's `PORT` environment variable automatically, so no code change is needed
+for Render or other hosts that assign ports dynamically.
+
+You can test the same container locally if Docker is installed:
+
+```bash
+docker build -t transport-network-simulation .
+docker run --rm -p 8080:8080 transport-network-simulation
+```
+
+Then open:
+
+```text
+http://localhost:8080/
+```

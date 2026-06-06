@@ -1,0 +1,9 @@
+.git/
+target/
+bin/
+out/
+logs/
+web-simulation-runs/
+*.class
+*.csv
+*.txt
