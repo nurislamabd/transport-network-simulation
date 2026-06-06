@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transport Network Simulation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Java backend + browser replay</p>
+      <h1>Transport Network Simulation Online</h1>
+      <p class="lede">Generate a transport network with the Java simulation engine, then play, pause, reset, and adjust replay speed directly in the browser.</p>
+    </div>
+    <div class="status-card">
+      <span id="serverStatus" class="status-dot"></span>
+      <strong>Backend ready</strong>
+      <small>POST /api/simulations</small>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel controls-panel">
+      <div class="section-title">
+        <h2>Run simulation</h2>
+        <p>Choose random data or set your own web-sized network.</p>
+      </div>
+
+      <form id="simulationForm" class="grid-form">
+        <label class="toggle">
+          <input type="checkbox" id="randomRun">
+          <span>Use random backend configuration</span>
+        </label>
+
+        <label>
+          Map X
+          <input type="number" id="mapX" min="1" max="1000" value="500">
+        </label>
+        <label>
+          Map Y
+          <input type="number" id="mapY" min="1" max="1000" value="500">
+        </label>
+        <label>
+          Trucks
+          <input type="number" id="trucks" min="1" max="100" value="3">
+        </label>
+        <label>
+          Warehouses
+          <input type="number" id="warehouses" min="2" max="100" value="4">
+        </label>
+        <label>
+          Shipments
+          <input type="number" id="shipments" min="1" max="500" value="8">
+        </label>
+
+        <button type="submit" id="runButton" class="primary">Run Java simulation</button>
+      </form>
+
+      <div id="message" class="message">Run a simulation to load replay data.</div>
+    </section>
+
+    <section class="panel replay-panel">
+      <div class="section-title row">
+        <div>
+          <h2>Replay controls</h2>
+          <p>Playback uses the CSV snapshots returned by the Java backend.</p>
+        </div>
+        <div class="replay-buttons">
+          <button id="playButton" disabled>Play</button>
+          <button id="resetButton" disabled>Reset</button>
+        </div>
+      </div>
+
+      <div class="sliders">
+        <label>
+          Hour <span id="hourLabel">0 / 0</span>
+          <input type="range" id="hourSlider" min="0" max="0" value="0" disabled>
+        </label>
+        <label>
+          Replay speed <span id="speedLabel">1x</span>
+          <input type="range" id="speedSlider" min="0.25" max="5" step="0.25" value="1">
+        </label>
+      </div>
+
+      <canvas id="mapCanvas" width="1100" height="620" aria-label="simulation map"></canvas>
+
+      <div id="metrics" class="metrics">
+        <div><strong>Run</strong><span>None yet</span></div>
+        <div><strong>Trucks</strong><span>0</span></div>
+        <div><strong>Warehouses</strong><span>0</span></div>
+        <div><strong>Shipments</strong><span>0</span></div>
+      </div>
+
+      <div id="downloads" class="downloads"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
