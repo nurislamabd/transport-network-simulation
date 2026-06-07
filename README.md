@@ -297,3 +297,33 @@ java -cp target/classes web.SimulationWebServer 9090
 The website calls the Java backend at `POST /api/simulations`. Each run creates a directory under
 `web-simulation-runs/` containing `config.txt`, `TrucksCSV.txt`, `WarehousesCSV.txt`, and
 `ShipmentsCSV.txt` for replay and download.
+
+## Free Web Deployment with Render + GitHub
+
+This project includes a `Dockerfile` for deploying the browser replay UI and Java backend together as one web service. When you choose **Docker** as the runtime on Render, Render uses the repository `Dockerfile`, so you usually will not see separate build command and start command fields.
+
+### Deploy from GitHub on Render
+
+1. Push this repository to GitHub.
+2. In Render, choose **New +** → **Web Service**.
+3. Connect your GitHub repository.
+4. Set **Runtime** to **Docker**.
+5. Keep the default Dockerfile path as `./Dockerfile`.
+6. Select the free instance type, then create the service.
+
+The Docker image builds the Maven project and starts:
+
+```bash
+java -cp target/classes web.SimulationWebServer
+```
+
+Render provides the `PORT` environment variable automatically for web services. The server reads that variable and falls back to port `8080` for local Docker runs.
+
+### Run the Docker image locally
+
+```bash
+docker build -t transport-network-simulation .
+docker run --rm -p 8080:8080 transport-network-simulation
+```
+
+Then open <http://localhost:8080>.
