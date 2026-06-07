@@ -16,11 +16,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +37,16 @@ public class SimulationWebServer
     private static final int MAX_WEB_WAREHOUSES = 100;
     private static final int MAX_WEB_SHIPMENTS = 500;
     private static final int MAX_WEB_MAP_SIZE = 1000;
+
+    // Truck/Warehouse/Shipment log to static BufferedWriters in Simulation, so runs must not
+    // overlap. A single-thread executor both serializes runs and keeps them off the HTTP
+    // threads, so the POST returns immediately and the client polls for the result.
+    private static final ExecutorService SIMULATION_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final Map<String, Job> JOBS = new ConcurrentHashMap<>();
+
+    // Compiled once; jsonScalar runs this against every CSV cell, so String.matches (which
+    // recompiles the pattern per call) was a major serialization cost.
+    private static final Pattern NUMBER_PATTERN = Pattern.compile("-?\\d+(\\.\\d+)?");
 
     /**
      * Starts the web server.
@@ -68,39 +79,93 @@ public class SimulationWebServer
 
     private static void handleSimulationRequest(HttpExchange exchange) throws IOException
     {
-        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+        String method = exchange.getRequestMethod();
+        if ("POST".equalsIgnoreCase(method)) {
+            handleSimulationStart(exchange);
+        } else if ("GET".equalsIgnoreCase(method)) {
+            handleSimulationStatus(exchange);
+        } else {
             sendText(exchange, 405, "Method Not Allowed", "text/plain");
-            return;
         }
+    }
 
+    /**
+     * Accepts simulation settings, queues the run on the background executor, and immediately
+     * returns the run id so the client can poll for completion.
+     */
+    private static void handleSimulationStart(HttpExchange exchange) throws IOException
+    {
         try {
             String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            SimulationSettings settings = SimulationSettings.fromJson(requestBody);
-            validateSettings(settings);
+            SimulationSettings parsed = SimulationSettings.fromJson(requestBody);
+            validateSettings(parsed);
 
             String runId = Instant.now().toEpochMilli() + "-" + UUID.randomUUID().toString().substring(0, 8);
             Path runDirectory = RUNS_DIRECTORY.resolve(runId);
             Files.createDirectories(runDirectory);
             File configFile = runDirectory.resolve("config.txt").toFile();
 
-            if (settings.random) {
+            if (parsed.random) {
                 Main.randomConfiguration(configFile);
             } else {
-                Main.configure(configFile, settings.mapX, settings.mapY, settings.trucks, settings.warehouses, settings.shipments);
+                Main.configure(configFile, parsed.mapX, parsed.mapY, parsed.trucks, parsed.warehouses, parsed.shipments);
             }
-            settings = settings.withConfigValues(configFile.toPath());
+            SimulationSettings settings = parsed.withConfigValues(configFile.toPath());
 
-            Simulation simulation = new Simulation(configFile, runDirectory.toFile());
-            simulation.simulate();
+            Job job = new Job();
+            JOBS.put(runId, job);
+            SIMULATION_EXECUTOR.submit(() -> runSimulationJob(runId, job, settings, configFile, runDirectory));
 
-            SimulationPayload payload = SimulationPayload.fromRun(runId, settings, simulation, runDirectory);
-            sendText(exchange, 200, payload.toJson(), "application/json");
+            sendText(exchange, 202, "{\"runId\":\"" + jsonEscape(runId) + "\",\"status\":\"running\"}", "application/json");
         } catch (IllegalArgumentException e) {
             sendText(exchange, 400, "{\"error\":\"" + jsonEscape(e.getMessage()) + "\"}", "application/json");
         } catch (Exception e) {
             e.printStackTrace();
-            sendText(exchange, 500, "{\"error\":\"Simulation failed: " + jsonEscape(e.getMessage()) + "\"}", "application/json");
+            sendText(exchange, 500, "{\"error\":\"Could not start simulation: " + jsonEscape(e.getMessage()) + "\"}", "application/json");
         }
+    }
+
+    private static void runSimulationJob(String runId, Job job, SimulationSettings settings, File configFile, Path runDirectory)
+    {
+        try {
+            Simulation simulation = new Simulation(configFile, runDirectory.toFile());
+            simulation.simulate();
+            job.result = SimulationPayload.fromRun(runId, settings, simulation, runDirectory).toJson();
+            job.status = "done";
+        } catch (Exception e) {
+            e.printStackTrace();
+            job.error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            job.status = "error";
+        }
+    }
+
+    /**
+     * Polled by the client at /api/simulations/{runId}. Returns the running/error status, or the
+     * full payload once the background run finishes.
+     */
+    private static void handleSimulationStatus(HttpExchange exchange) throws IOException
+    {
+        String runId = exchange.getRequestURI().getPath().replaceFirst("^/api/simulations/?", "");
+        Job job = runId.isEmpty() ? null : JOBS.get(runId);
+        if (job == null) {
+            sendText(exchange, 404, "{\"error\":\"Unknown run id.\"}", "application/json");
+            return;
+        }
+        if ("done".equals(job.status)) {
+            sendText(exchange, 200, job.result, "application/json");
+        } else if ("error".equals(job.status)) {
+            sendText(exchange, 500, "{\"status\":\"error\",\"error\":\"Simulation failed: " + jsonEscape(job.error) + "\"}", "application/json");
+        } else {
+            sendText(exchange, 200, "{\"status\":\"running\"}", "application/json");
+        }
+    }
+
+    /** Mutable holder for the state of one background simulation run. */
+    private static final class Job
+    {
+        private volatile String status = "running";
+        private volatile String result;
+        private volatile String error;
     }
 
     private static void validateSettings(SimulationSettings settings)
@@ -239,17 +304,21 @@ public class SimulationWebServer
         private final double truckMs;
         private final double warehouseMs;
         private final double shipmentMs;
-        private final List<Map<String, String>> warehouseRows;
-        private final List<Map<String, String>> truckRows;
-        private final List<Map<String, String>> shipmentRows;
+        // Pre-built compact JSON fragments. The replay UI only needs warehouse positions,
+        // per-hour truck positions/state, and a per-hour delivered count, so we collapse the
+        // full per-hour CSV history (entities x hours rows) down to just those instead of
+        // inlining every column of every row.
+        private final String warehousesJson;
+        private final String trucksByHourJson;
+        private final String deliveredByHourJson;
 
         private SimulationPayload(
             String runId,
             SimulationSettings settings,
             Simulation simulation,
-            List<Map<String, String>> warehouseRows,
-            List<Map<String, String>> truckRows,
-            List<Map<String, String>> shipmentRows
+            String warehousesJson,
+            String trucksByHourJson,
+            String deliveredByHourJson
         ) {
             this.runId = runId;
             this.mapX = settings.mapX;
@@ -261,9 +330,9 @@ public class SimulationWebServer
             this.truckMs = simulation.getTrucksMs();
             this.warehouseMs = simulation.getWarehousesMs();
             this.shipmentMs = simulation.getShipmentsMs();
-            this.warehouseRows = warehouseRows;
-            this.truckRows = truckRows;
-            this.shipmentRows = shipmentRows;
+            this.warehousesJson = warehousesJson;
+            this.trucksByHourJson = trucksByHourJson;
+            this.deliveredByHourJson = deliveredByHourJson;
         }
 
         private static SimulationPayload fromRun(String runId, SimulationSettings settings, Simulation simulation, Path runDirectory) throws IOException
@@ -272,9 +341,9 @@ public class SimulationWebServer
                 runId,
                 settings,
                 simulation,
-                readCsv(runDirectory.resolve("WarehousesCSV.txt")),
-                readCsv(runDirectory.resolve("TrucksCSV.txt")),
-                readCsv(runDirectory.resolve("ShipmentsCSV.txt"))
+                warehousesJson(runDirectory.resolve("WarehousesCSV.txt")),
+                trucksByHourJson(runDirectory.resolve("TrucksCSV.txt")),
+                deliveredByHourJson(runDirectory.resolve("ShipmentsCSV.txt"))
             );
         }
 
@@ -293,53 +362,86 @@ public class SimulationWebServer
                 + "\"trucks\":\"/runs/" + jsonEscape(runId) + "/TrucksCSV.txt\","
                 + "\"warehouses\":\"/runs/" + jsonEscape(runId) + "/WarehousesCSV.txt\","
                 + "\"shipments\":\"/runs/" + jsonEscape(runId) + "/ShipmentsCSV.txt\"},"
-                + "\"warehousesData\":" + rowsToJson(warehouseRows) + ","
-                + "\"trucksData\":" + rowsToJson(truckRows) + ","
-                + "\"shipmentsData\":" + rowsToJson(shipmentRows)
+                + "\"warehouseList\":" + warehousesJson + ","
+                + "\"trucksByHour\":" + trucksByHourJson + ","
+                + "\"deliveredByHour\":" + deliveredByHourJson
                 + "}";
         }
     }
 
-    private static List<Map<String, String>> readCsv(Path path) throws IOException
+    /**
+     * Warehouse positions are constant across the run, so we keep a single row per id.
+     * CSV columns: Hour,WarehouseID,PosX,PosY,...
+     */
+    private static String warehousesJson(Path path) throws IOException
     {
         List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
-        List<Map<String, String>> rows = new ArrayList<>();
-        if (lines.isEmpty()) return rows;
-        String[] headers = lines.get(0).split(",", -1);
+        TreeMap<Integer, String> byId = new TreeMap<>();
         for (int i = 1; i < lines.size(); i++) {
-            String[] values = lines.get(i).split(",", -1);
-            Map<String, String> row = new HashMap<>();
-            for (int j = 0; j < headers.length && j < values.length; j++) {
-                row.put(headers[j], values[j]);
-            }
-            rows.add(row);
+            String[] v = lines.get(i).split(",", -1);
+            if (v.length < 4) continue;
+            int id = Integer.parseInt(v[1]);
+            byId.putIfAbsent(id, "{\"id\":" + id + ",\"x\":" + numOrZero(v[2]) + ",\"y\":" + numOrZero(v[3]) + "}");
         }
-        return rows;
+        return "[" + String.join(",", byId.values()) + "]";
     }
 
-    private static String rowsToJson(List<Map<String, String>> rows)
+    /**
+     * Groups trucks by simulation hour, keeping only the fields the canvas draws.
+     * CSV columns: Hour,TruckID,PosX,PosY,LoadSize,Speed,Status,...
+     */
+    private static String trucksByHourJson(Path path) throws IOException
     {
-        StringBuilder builder = new StringBuilder("[");
-        for (int i = 0; i < rows.size(); i++) {
-            if (i > 0) builder.append(',');
-            builder.append('{');
-            int column = 0;
-            for (Map.Entry<String, String> entry : rows.get(i).entrySet()) {
-                if (column++ > 0) builder.append(',');
-                builder.append('\"').append(jsonEscape(entry.getKey())).append("\":");
-                builder.append(jsonScalar(entry.getValue()));
-            }
-            builder.append('}');
+        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        java.util.LinkedHashMap<String, StringBuilder> byHour = new java.util.LinkedHashMap<>();
+        for (int i = 1; i < lines.size(); i++) {
+            String[] v = lines.get(i).split(",", -1);
+            if (v.length < 7) continue;
+            StringBuilder hour = byHour.computeIfAbsent(v[0], k -> new StringBuilder());
+            if (hour.length() > 0) hour.append(',');
+            hour.append("{\"id\":").append(v[1])
+                .append(",\"x\":").append(numOrZero(v[2]))
+                .append(",\"y\":").append(numOrZero(v[3]))
+                .append(",\"done\":").append("Done".equals(v[6]))
+                .append('}');
         }
-        builder.append(']');
-        return builder.toString();
+        StringBuilder out = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, StringBuilder> e : byHour.entrySet()) {
+            if (!first) out.append(',');
+            first = false;
+            out.append('"').append(jsonEscape(e.getKey())).append("\":[").append(e.getValue()).append(']');
+        }
+        return out.append('}').toString();
     }
 
-    private static String jsonScalar(String value)
+    /**
+     * Reduces the shipment history to a delivered count per hour.
+     * CSV columns: Hour,ShipmentID,Size,SourceID,DestinationID,CurrentWarehouse,Status
+     */
+    private static String deliveredByHourJson(Path path) throws IOException
     {
-        if (value == null || value.equals("null")) return "null";
-        if (value.matches("-?\\d+(\\.\\d+)?")) return value;
-        return "\"" + jsonEscape(value) + "\"";
+        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        java.util.LinkedHashMap<String, int[]> counts = new java.util.LinkedHashMap<>();
+        for (int i = 1; i < lines.size(); i++) {
+            String[] v = lines.get(i).split(",", -1);
+            if (v.length < 7) continue;
+            int[] count = counts.computeIfAbsent(v[0], k -> new int[1]);
+            if ("Delivered".equals(v[6])) count[0]++;
+        }
+        StringBuilder out = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, int[]> e : counts.entrySet()) {
+            if (!first) out.append(',');
+            first = false;
+            out.append('"').append(jsonEscape(e.getKey())).append("\":").append(e.getValue()[0]);
+        }
+        return out.append('}').toString();
+    }
+
+    private static String numOrZero(String value)
+    {
+        return (value != null && NUMBER_PATTERN.matcher(value).matches()) ? value : "0";
     }
 
     private static int intValue(String json, String key, int fallback)
