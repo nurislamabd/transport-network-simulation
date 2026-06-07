@@ -33,13 +33,15 @@ form.addEventListener('submit', async (event) => {
   };
 
   try {
-    const response = await fetch('/api/simulations', {
+    const start = await fetch('/api/simulations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Simulation failed.');
+    const started = await start.json();
+    if (!start.ok) throw new Error(started.error || 'Simulation failed.');
+
+    const payload = await pollForResult(started.runId);
     loadReplay(payload);
     setMessage(`Simulation ${payload.runId} completed with ${payload.completedHours} replay hours.`);
   } catch (error) {
@@ -48,6 +50,24 @@ form.addEventListener('submit', async (event) => {
     runButton.disabled = false;
   }
 });
+
+// The run executes on the server in the background; poll until it finishes so the request
+// never blocks on a long simulation.
+async function pollForResult(runId) {
+  let elapsed = 0;
+  while (true) {
+    const response = await fetch(`/api/simulations/${runId}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Simulation failed.');
+    if (data.status === 'running') {
+      elapsed += 0.5;
+      setMessage(`Running Java backend simulation... (${elapsed.toFixed(1)}s)`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      continue;
+    }
+    return data;
+  }
+}
 
 playButton.addEventListener('click', () => {
   if (!replay) return;
@@ -69,10 +89,16 @@ speedSlider.addEventListener('input', () => {
 });
 
 function loadReplay(payload) {
-  const warehouses = latestById(payload.warehousesData, 'WarehouseID');
-  const trucksByHour = groupBy(payload.trucksData, 'Hour');
-  const deliveredByHour = deliveredShipmentCounts(payload.shipmentsData);
-  replay = { ...payload, warehouses, trucksByHour, deliveredByHour };
+  // The server now sends compact, replay-ready structures:
+  //   warehouseList    [{id, x, y}]
+  //   trucksByHour     { hour: [{id, x, y, done}] }
+  //   deliveredByHour  { hour: count }
+  replay = {
+    ...payload,
+    warehouses: payload.warehouseList || [],
+    trucksByHour: payload.trucksByHour || {},
+    deliveredByHour: payload.deliveredByHour || {}
+  };
   currentHour = 0;
 
   hourSlider.max = payload.completedHours;
@@ -138,8 +164,8 @@ function drawReplay() {
   const scaleY = (y) => 42 + (Number(y) / replay.mapY) * (canvas.height - 84);
 
   for (const warehouse of replay.warehouses) {
-    const x = scaleX(warehouse.PosX);
-    const y = scaleY(warehouse.PosY);
+    const x = scaleX(warehouse.x);
+    const y = scaleY(warehouse.y);
     ctx.fillStyle = '#8fffba';
     ctx.strokeStyle = '#d8ffe8';
     ctx.lineWidth = 2;
@@ -149,14 +175,14 @@ function drawReplay() {
     ctx.stroke();
     ctx.fillStyle = '#e8f0ff';
     ctx.font = '12px sans-serif';
-    ctx.fillText(`W${warehouse.WarehouseID}`, x + 12, y - 12);
+    ctx.fillText(`W${warehouse.id}`, x + 12, y - 12);
   }
 
-  const trucks = replay.trucksByHour.get(String(currentHour)) || [];
+  const trucks = replay.trucksByHour[String(currentHour)] || [];
   for (const truck of trucks) {
-    const x = scaleX(truck.PosX);
-    const y = scaleY(truck.PosY);
-    ctx.fillStyle = truck.Status === 'Done' ? '#9dafc9' : '#69e2ff';
+    const x = scaleX(truck.x);
+    const y = scaleY(truck.y);
+    ctx.fillStyle = truck.done ? '#9dafc9' : '#69e2ff';
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -165,10 +191,10 @@ function drawReplay() {
     ctx.stroke();
     ctx.fillStyle = '#e8f0ff';
     ctx.font = '12px sans-serif';
-    ctx.fillText(`T${truck.TruckID}`, x + 10, y + 4);
+    ctx.fillText(`T${truck.id}`, x + 10, y + 4);
   }
 
-  const delivered = replay.deliveredByHour.get(String(currentHour)) || 0;
+  const delivered = replay.deliveredByHour[String(currentHour)] || 0;
   ctx.fillStyle = 'rgba(8, 17, 31, .78)';
   ctx.fillRect(22, 20, 270, 78);
   ctx.fillStyle = '#e8f0ff';
@@ -190,31 +216,6 @@ function drawGrid() {
   for (let y = 0; y < canvas.height; y += 55) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
   }
-}
-
-function latestById(rows, idField) {
-  const map = new Map();
-  for (const row of rows) map.set(String(row[idField]), row);
-  return [...map.values()];
-}
-
-function groupBy(rows, field) {
-  const map = new Map();
-  for (const row of rows) {
-    const key = String(row[field]);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(row);
-  }
-  return map;
-}
-
-function deliveredShipmentCounts(rows) {
-  const grouped = groupBy(rows, 'Hour');
-  const counts = new Map();
-  for (const [hour, hourRows] of grouped) {
-    counts.set(hour, hourRows.filter((row) => row.Status === 'Delivered').length);
-  }
-  return counts;
 }
 
 function numberValue(selector) { return Number(document.querySelector(selector).value); }
